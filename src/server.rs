@@ -27,6 +27,8 @@ use log::{debug, trace, error};
 use crate::packet::*;
 use crate::service::{RpcService, RpcContext};
 
+type ProxyKey = Arc<[u8; UUID_LEN]>;
+
 enum RpcProxyState {
     INIT,
     PENDING(Waker),
@@ -40,17 +42,19 @@ impl RpcProxyState {
     }
 }
 
-#[allow(unused)] // TODO: server will be used, remove when done
+
 pub(crate) struct RpcProxyInner<T: Sync> {
     state: Mutex<RpcProxyState>,
     server: Arc<RpcServerInner<T>>,
+    key: ProxyKey,
 }
 
 impl<T: Sync> RpcProxyInner<T> {
-    fn new(server: Arc<RpcServerInner<T>>) -> RpcProxyInner<T> {
+    fn new(server: Arc<RpcServerInner<T>>, key: ProxyKey) -> RpcProxyInner<T> {
 	RpcProxyInner {
 	    state: Mutex::new(RpcProxyState::new()),
 	    server,
+	    key,
 	}
     }
 
@@ -69,8 +73,8 @@ impl<T: Sync> RpcProxyInner<T> {
 /// RpcProxy is where the client/caller waits for the return value from the remote server.
 pub struct RpcProxy<T: Sync>(Arc<RpcProxyInner<T>>);
 impl<T: Sync> RpcProxy<T> {
-    fn new(server: Arc<RpcServerInner<T>>) -> RpcProxy<T> {
-	RpcProxy(Arc::new(RpcProxyInner::new(server)))
+    fn new(server: Arc<RpcServerInner<T>>, key: ProxyKey) -> RpcProxy<T> {
+	RpcProxy(Arc::new(RpcProxyInner::new(server, key)))
     }
 }
 
@@ -104,10 +108,11 @@ impl<T: Sync> Future for RpcProxy<T> {
     }
 }
 
+
 impl<T: Sync> Drop for RpcProxy<T> {
     fn drop(&mut self) {
-	// TODO: Remove RpcProxy from hashmap
-	// This is nececcary if the remote doesn't send a reply
+	let inner  = &self.0;
+	inner.server.remove_proxy(&inner.key);
     }
 }
 
@@ -117,8 +122,9 @@ struct RpcServerInner<T: Sync> {
     user_state: Arc<T>,
     socket: Arc<UdpSocket>,
     /// Pending out-going calls, uuid -> waiter object
-    pending: Mutex<HashMap<[u8;16], Arc<RpcProxyInner<T>>>>,
+    pending: Mutex<HashMap<ProxyKey, Arc<RpcProxyInner<T>>>>,
 }
+
 
 impl<T: Sync> RpcServerInner<T> {
     fn new(user_state: Arc<T>, socket: Arc<UdpSocket>) -> RpcServerInner<T> {
@@ -126,6 +132,13 @@ impl<T: Sync> RpcServerInner<T> {
 	    user_state,
 	    socket,
 	    pending: Mutex::new(HashMap::new()),
+	}
+    }
+
+    fn remove_proxy(&self, key: &ProxyKey) {
+	let mut map = self.pending.lock().unwrap();
+	if let Some(_) = map.remove(key) {
+	    trace!("Removing stale proxy");
 	}
     }
 }
@@ -253,11 +266,13 @@ impl<T: RpcService + Sync + Send +'static> RpcServer<T>
     pub async fn call(&self, dst: SocketAddr, packet: Vec<u8> ) -> RpcProxy<T> {
 	trace!("Calling");
 	let uuid: [u8; UUID_LEN] = std::array::from_fn(|i| packet[i + 1]);
-	let proxy = RpcProxy::new(self.inner.clone());
+	let uuid = Arc::new(uuid);
+	let proxy = RpcProxy::new(self.inner.clone(), uuid.clone());
 	{
 	    let mut map = self.inner.pending.lock().unwrap();
 	    map.insert(uuid, proxy.0.clone());
 	}
+	// TODO: Fail Proxy early if send_to fails..
 	match self.inner.socket.send_to(packet.as_slice(), dst).await {
 	    Ok(_b) => (),
 	    Err(e) => error!("Failed to send packet: {}", e),
@@ -265,4 +280,10 @@ impl<T: RpcService + Sync + Send +'static> RpcServer<T>
 	proxy
     }
 
+    /// Used to test whether the Proxy object is removed
+    #[cfg(test)]
+    pub(crate) fn _get_waiter_map_len(&self) -> usize {
+	let map = self.inner.pending.lock().unwrap();
+	map.len()
+    }
 }

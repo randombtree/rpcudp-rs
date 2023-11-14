@@ -150,4 +150,20 @@ mod tests {
 	    async_std::task::yield_now().await;
 	});
     }
+
+    #[test]
+    fn proxy_object_removed_on_fail() {
+	async_std::task::block_on(async {
+	    let service = TestService::new();
+	    let addr: SocketAddr = "127.0.0.1:30002".parse().unwrap();
+	    let blackhole: SocketAddr = "127.0.0.1:30003".parse().unwrap();
+	    let service = RpcServer::bind(addr, service).await.unwrap();
+	    let ret = future::timeout(Duration::from_millis(5),
+				      service.get_counter(blackhole)).await;
+	    assert!(ret.is_err());
+	    drop(ret);
+	    // The future should have been removed from the hashmap, thus preventing a memory leak
+	    assert!(service._get_waiter_map_len() == 0, "Proxy object memory leak");
+	});
+    }
 }
