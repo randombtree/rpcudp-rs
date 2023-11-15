@@ -78,8 +78,10 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 /// Credits: Ideas from rsrpc service macro
 #[macro_export] macro_rules! rpc {
     (
+	$(#[$srvattr:meta])*
 	$rpc_name:ident {
 	    $(
+		$(#[$fnattr:meta])*
 		async fn $fn_name:ident(& $self_:ident $(, $arg:ident : $in:ty)*) $(-> $ret:ty)? $b:block
 	    )*
 	}
@@ -100,9 +102,12 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 		)*
 	    }
 
+	    $(#[$srvattr])*
 	    #[allow(unused)]
 	    impl [<$rpc_name Trait>] for $rpc_name {
 		$(
+		    // Apply function attributes to the RPC body.
+		    $(#[$fnattr])*
 		    async fn $fn_name(& $self_, context: $crate::service::RpcContext $(, $arg: $in)*) -> rpc!(@ret $($ret)?) $b
 		)*
 	    }
@@ -143,8 +148,12 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 	    }
 
 	    // Outgoing "proxy"
+
 	    impl [<$rpc_name Interface>] for RpcServer<$rpc_name> {
 		$(
+		    // Also apply attributes to the proxy method, so that call validation can happen
+		    // both on the proxy (caller) side and at the target
+		    $(#[$fnattr])*
 		    async fn $fn_name(& $self_, dst: SocketAddr $(, $arg: $in)*) -> $crate::error::Result<rpc!(@ret $($ret)?)> {
 			let name = stringify!($fn_name);
 			$crate::trace!("Call proxy method {}", name);

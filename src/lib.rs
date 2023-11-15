@@ -68,8 +68,9 @@ mod tests {
     }
 
     rpc! {
+	/// Tests different kinds of RPC calls
 	TestService {
-	    // Test: string string
+	    /// Test: string string
 	    async fn hello(&self, name: String) -> String {
 		trace!("In hello!");
 		let mut inner = self.0.lock().unwrap();
@@ -77,22 +78,22 @@ mod tests {
 		format!("Hello {} {}", name, inner.counter).into()
 	    }
 
-	    // Test: Two params
+	    /// Test: Two params
 	    async fn add(&self, a: u32, b: u32) -> u32 {
 		a + b
 	    }
 
-	    // Test: Two types
+	    /// Test: Two types
 	    async fn concat(&self, a: String, b: u32) -> String {
 		format!("{}{}", a, b).into()
 	    }
 
-	    // Test: No params
+	    /// Test: No params
 	    async fn get_counter(&self) -> u32 {
 		self.counter()
 	    }
 
-	    // Test: No return
+	    /// Test: No return
 	    async fn inc_counter(&self, count: u32) {
 		self.inc(count);
 	    }
