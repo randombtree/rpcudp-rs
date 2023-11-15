@@ -93,7 +93,7 @@ mod tests {
 	    }
 
 	    // Test: No return
-	    async fn inc_counter(&self, count: u32) -> () {
+	    async fn inc_counter(&self, count: u32) {
 		self.inc(count);
 	    }
 	}

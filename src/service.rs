@@ -80,7 +80,7 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
     (
 	$rpc_name:ident {
 	    $(
-		async fn $fn_name:ident(& $self_:ident $(, $arg:ident : $in:ty)*) -> $out:ty $b:block
+		async fn $fn_name:ident(& $self_:ident $(, $arg:ident : $in:ty)*) $(-> $ret:ty)? $b:block
 	    )*
 	}
     ) => {
@@ -89,21 +89,21 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 	    // Hide RPC methods into own namespace
 	    trait [<$rpc_name Trait>] {
 		$(
-		    async fn $fn_name(& $self_, context: $crate::service::RpcContext $(, $arg: $in)*) -> $out;
+		    async fn $fn_name(& $self_, context: $crate::service::RpcContext $(, $arg: $in)*) -> rpc!(@ret $($ret)?);
 		)*
 	    }
 
 	    // Proxy interface for rpc calls
 	    trait [<$rpc_name Interface>] {
 		$(
-		    async fn $fn_name(& $self_, dst: SocketAddr $(, $arg: $in)*) -> $crate::Result<$out>;
+		    async fn $fn_name(& $self_, dst: SocketAddr $(, $arg: $in)*) -> $crate::Result<rpc!(@ret $($ret)?)>;
 		)*
 	    }
 
 	    #[allow(unused)]
 	    impl [<$rpc_name Trait>] for $rpc_name {
 		$(
-		    async fn $fn_name(& $self_, context: $crate::service::RpcContext $(, $arg: $in)*) -> $out $b
+		    async fn $fn_name(& $self_, context: $crate::service::RpcContext $(, $arg: $in)*) -> rpc!(@ret $($ret)?) $b
 		)*
 	    }
 
@@ -145,7 +145,7 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 	    // Outgoing "proxy"
 	    impl [<$rpc_name Interface>] for RpcServer<$rpc_name> {
 		$(
-		    async fn $fn_name(& $self_, dst: SocketAddr $(, $arg: $in)*) -> $crate::error::Result<$out> {
+		    async fn $fn_name(& $self_, dst: SocketAddr $(, $arg: $in)*) -> $crate::error::Result<rpc!(@ret $($ret)?)> {
 			let name = stringify!($fn_name);
 			$crate::trace!("Call proxy method {}", name);
 			// TODO: Enforce capacity
@@ -169,5 +169,8 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 	    }
 	}
     };
+    // Fix up/"de-sugar" methods without return type to returning the actual ()
+    (@ret $ret:ty) => { $ret };
+    (@ret) => { () };
 }
 
