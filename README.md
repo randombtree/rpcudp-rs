@@ -1,14 +1,16 @@
 # rpcudp-rs - Simple bare-bones P2P RPC over UDP
 
-Simple unreliable async RPC over UDP. Currently only supports async-std. RPC calls are not timed, so its up to the caller to time-out if the receiver doesn't answer.
+Simple unreliable async RPC over UDP. RPC calls are not timed, so its up to the caller to time-out if the receiver doesn't answer.
+
+Supports both async-std and tokio runtimes as features.
 
 ## Status
 
-In development, some corner cases still not handled.
+In development, some corner cases still not handled optimally.
 
 ## Usage
 ```
-use async_std::net::SocketAddr;
+use rpcudp_rs::compat::net::SocketAddr;
 
 use rpcudp_rs::{RpcServer, rpc};
 
@@ -48,7 +50,7 @@ async fn async_main() {
 }
 
 fn main() {
-    async_std::task::block_on(async { async_main().await; });
+    rpcudp_rs::compat::task::block_on(async { async_main().await; });
 }
 ```
 

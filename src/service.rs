@@ -4,10 +4,9 @@ use std::marker::Send;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use async_std::net::SocketAddr;
-
 use log::trace;
 
+use crate::compat::net::SocketAddr;
 use crate::error::*;
 use crate::packet::*;
 

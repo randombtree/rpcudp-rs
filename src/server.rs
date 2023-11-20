@@ -14,13 +14,13 @@ use futures::{
 };
 
 
-use async_std::net::{
+use crate::compat::net::{
     ToSocketAddrs,
     SocketAddr,
     UdpSocket,
 };
-use async_std::io::Result as IOResult;
-use async_std::task;
+use crate::compat::io::Result as IOResult;
+use crate::compat::task;
 
 use log::{debug, trace, error};
 

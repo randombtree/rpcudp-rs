@@ -1,5 +1,11 @@
 #[doc = include_str!("../README.md")]
 
+#[cfg(all(feature = "async-std", feature = "tokio"))]
+compile_error!("Choose either \"async-std\" or \"tokio\" feature, not both!");
+
+#[cfg(not(any(feature = "async-std", feature = "tokio")))]
+compile_error!("Choose either \"async-std\" or \"tokio\" feature");
+
 // Imports for rpc macro
 pub use std::collections::HashMap;
 pub use std::sync::Arc;
@@ -17,6 +23,7 @@ pub mod error;
 pub mod service;
 pub mod packet;
 pub mod server;
+pub mod compat;
 
 // Some imports for making the rpc-macro more readable:
 use crate::service::*;
@@ -30,16 +37,19 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
-    use async_std::future;
-    use async_std::net::{
-	SocketAddr,
-    };
-
     use std::time::Duration;
     use log::trace;
     use test_log::test;
 
     use super::{RpcServer, rpc};
+    use super::compat::{
+	task::{
+	    block_on,
+	    yield_now,
+	},
+	net:: SocketAddr,
+	time::timeout,
+    };
 
     struct TestServiceInner {
 	counter: u32,
@@ -102,7 +112,7 @@ mod tests {
 
     macro_rules! timed_future {
 	($expr:expr) => {
-	    future::timeout(Duration::from_millis(5), $expr).await
+	    timeout(Duration::from_millis(5), $expr).await
 		.expect("Timed out")
 	}
     }
@@ -110,7 +120,7 @@ mod tests {
 
     #[test]
     fn create_service() {
-	async_std::task::block_on(async {
+	block_on(async {
 	    let server_service = TestService::new();
 	    let client_service = TestService::new();
 	    let server_addr: SocketAddr = "127.0.0.1:30000".parse().unwrap();
@@ -148,19 +158,19 @@ mod tests {
 
 	    drop(server);
 	    drop(client);
-	    async_std::task::yield_now().await;
+	    yield_now().await;
 	});
     }
 
     #[test]
     fn proxy_object_removed_on_fail() {
-	async_std::task::block_on(async {
+	block_on(async {
 	    let service = TestService::new();
 	    let addr: SocketAddr = "127.0.0.1:30002".parse().unwrap();
 	    let blackhole: SocketAddr = "127.0.0.1:30003".parse().unwrap();
 	    let service = RpcServer::bind(addr, service).await.unwrap();
-	    let ret = future::timeout(Duration::from_millis(5),
-				      service.get_counter(blackhole)).await;
+	    let ret = timeout(Duration::from_millis(5),
+			      service.get_counter(blackhole)).await;
 	    assert!(ret.is_err());
 	    drop(ret);
 	    // The future should have been removed from the hashmap, thus preventing a memory leak
