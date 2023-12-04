@@ -97,7 +97,7 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 	    // Proxy interface for rpc calls
 	    trait [<$rpc_name Interface>] {
 		$(
-		    async fn $fn_name(& $self_, dst: SocketAddr $(, $arg: $in)*) -> $crate::Result<rpc!(@ret $($ret)?)>;
+		    async fn $fn_name(& $self_, dst: $crate::compat::net::SocketAddr $(, $arg: $in)*) -> $crate::Result<rpc!(@ret $($ret)?)>;
 		)*
 	    }
 
@@ -121,7 +121,7 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 			m.insert(stringify!($fn_name), |this, context, input, mut output: Vec<u8>| {
 			    $crate::trace!("RPC Handler {}", stringify!($fn_name));
 			    let this = this.clone();
-			    let ( $($arg,)*) : ($($in,)*) = bincode::deserialize(input)
+			    let ( $($arg,)*) : ($($in,)*) = $crate::bincode::deserialize(input)
 				.or(Err($crate::RpcError::ArgumentDecode))?;
 			    let func = || async move {
 				$crate::trace!("Start RPC -> {}", stringify!($fn_name));
@@ -153,7 +153,7 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 		    // Also apply attributes to the proxy method, so that call validation can happen
 		    // both on the proxy (caller) side and at the target
 		    $(#[$fnattr])*
-		    async fn $fn_name(& $self_, dst: SocketAddr $(, $arg: $in)*) -> $crate::error::Result<rpc!(@ret $($ret)?)> {
+		    async fn $fn_name(& $self_, dst: $crate::compat::net::SocketAddr $(, $arg: $in)*) -> $crate::error::Result<rpc!(@ret $($ret)?)> {
 			let name = stringify!($fn_name);
 			$crate::trace!("Call proxy method {}", name);
 			// TODO: Enforce capacity
@@ -168,10 +168,10 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 			}
 			// serialize call args
 			$(
-			    bincode::serialize_into(&mut buf, & $arg).unwrap();
+			    $crate::bincode::serialize_into(&mut buf, & $arg).unwrap();
 			)*
 			let ret = $self_.call(dst, buf).await.await;
-			Ok(bincode::deserialize(ret.as_slice()).unwrap())
+			Ok($crate::bincode::deserialize(ret.as_slice()).unwrap())
 		    }
 		)*
 	    }
