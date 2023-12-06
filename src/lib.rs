@@ -1,10 +1,13 @@
+#[cfg(doctest)]
 #[doc = include_str!("../README.md")]
+struct ReadMe;
 
 #[cfg(all(feature = "async-std", feature = "tokio"))]
 compile_error!("Choose either \"async-std\" or \"tokio\" feature, not both!");
 
 #[cfg(not(any(feature = "async-std", feature = "tokio")))]
 compile_error!("Choose either \"async-std\" or \"tokio\" feature");
+
 
 // Imports for rpc macro
 pub use std::collections::HashMap;
@@ -13,7 +16,6 @@ pub use paste::paste;
 pub use log::trace;
 pub use bincode;
 
-#[macro_use]
 extern crate lazy_static;
 pub use lazy_static::lazy_static;
 
@@ -26,11 +28,12 @@ pub mod server;
 pub mod compat;
 
 // Some imports for making the rpc-macro more readable:
-use crate::service::*;
-use crate::error::*;
+pub use crate::service::*;
+pub use crate::error::*;
 
 pub use crate::server::RpcServer;
 pub use crate::error::{RpcError, Result};
+pub use crate::service::RpcContext;
 
 #[cfg(test)]
 mod tests {
@@ -107,6 +110,11 @@ mod tests {
 	    async fn inc_counter(&self, count: u32) {
 		self.inc(count);
 	    }
+
+	    /// Test: Use context source address
+	    async fn get_source(&self, context: RpcContext) -> SocketAddr {
+		context.source
+	    }
 	}
     }
 
@@ -155,6 +163,11 @@ mod tests {
 		.expect("RPC inc_counter failed");
 	    assert!(ret == ());
 	    assert!(server_service.counter() == old_counter + 2);
+
+	    // Test with context source address
+	    let addr = timed_future!(client.get_source(server_addr))
+		.expect("RPC get_source failed");
+	    assert!(addr == client_addr);
 
 	    drop(server);
 	    drop(client);

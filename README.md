@@ -31,6 +31,10 @@ rpc! {
         async fn greet(&self, name: String) -> String {
             format!("{} {}!", self.greeting, name).into()
         }
+
+		async fn get_address(&self, context: RpcContext) -> SocketAddr {
+		    context.source
+		}
     }
 }
 
@@ -47,6 +51,9 @@ async fn async_main() {
     // Call RPC methods - note the peer address added and Result returned.
     assert!("Hola Isabel!" == peer1.greet(peer2_addr, "Isabel".into()).await.unwrap());
     assert!("Hello George!" == peer2.greet(peer1_addr, "George".into()).await.unwrap());
+
+	// Retrieve caller address
+	assert!(peer1_addr == peer1.get_address(peer2_addr).await.unwrap());
 }
 
 fn main() {

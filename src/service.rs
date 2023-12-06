@@ -15,7 +15,7 @@ use crate::packet::*;
 #[allow(unused)]
 pub struct RpcContext {
     /// Where did this call originate from (allegedly, note address spoofing possibility)
-    source: SocketAddr,
+    pub source: SocketAddr,
 }
 
 impl RpcContext {
@@ -90,14 +90,18 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 	    // Hide RPC methods into own namespace
 	    trait [<$rpc_name Trait>] {
 		$(
-		    async fn $fn_name(& $self_, context: $crate::service::RpcContext $(, $arg: $in)*) -> rpc!(@ret $($ret)?);
+		    rpc! {
+			@interface $fn_name(& $self_ $(, $arg: $in)*) $(-> $ret)?
+		    }
 		)*
 	    }
 
 	    // Proxy interface for rpc calls
 	    trait [<$rpc_name Interface>] {
 		$(
-		    async fn $fn_name(& $self_, dst: $crate::compat::net::SocketAddr $(, $arg: $in)*) -> $crate::Result<rpc!(@ret $($ret)?)>;
+		    rpc!{
+			@proxy_interface $fn_name ( $self_ $(, $arg: $in)*) $(-> $ret)?
+		    }
 		)*
 	    }
 
@@ -106,8 +110,9 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 	    impl [<$rpc_name Trait>] for $rpc_name {
 		$(
 		    // Apply function attributes to the RPC body.
-		    $(#[$fnattr])*
-		    async fn $fn_name(& $self_, context: $crate::service::RpcContext $(, $arg: $in)*) -> rpc!(@ret $($ret)?) $b
+		    rpc! {
+			@implement $(#[$fnattr])* $fn_name(& $self_ $(, $arg: $in)*) $(-> $ret)? $b
+		    }
 		)*
 	    }
 
@@ -118,22 +123,7 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 		static ref [<_ $rpc_name:snake:upper >]: $crate::service::RpcHash<$rpc_name> = {
 		    let mut m = $crate::HashMap::<&'static str, $crate::service::RpcHandlerFunc<$rpc_name>>::new();
 		    $(
-			m.insert(stringify!($fn_name), |this, context, input, mut output: Vec<u8>| {
-			    $crate::trace!("RPC Handler {}", stringify!($fn_name));
-			    let this = this.clone();
-			    let ( $($arg,)*) : ($($in,)*) = $crate::bincode::deserialize(input)
-				.or(Err($crate::RpcError::ArgumentDecode))?;
-			    let func = || async move {
-				$crate::trace!("Start RPC -> {}", stringify!($fn_name));
-				// Make sure we use the trait method!
-				let ret = [<$rpc_name Trait>]::$fn_name(&*this, context, $($arg,)*).await;
-				$crate::trace!("End RPC   <- {}",  stringify!($fn_name));
-				//let writer = &output as &dyn Write;
-				$crate::bincode::serialize_into(&mut output, &ret).unwrap();
-				Ok(output)
-			    };
-			    Ok(Box::pin(func()))
-			});
+			m.insert(stringify!($fn_name), rpc!(@handler $rpc_name $fn_name $(,$arg: $in)*));
 		    )*
 		    m
 		};
@@ -152,33 +142,130 @@ pub fn append_uuid(buf: &mut Vec<u8>) {
 		$(
 		    // Also apply attributes to the proxy method, so that call validation can happen
 		    // both on the proxy (caller) side and at the target
-		    $(#[$fnattr])*
-		    async fn $fn_name(& $self_, dst: $crate::compat::net::SocketAddr $(, $arg: $in)*) -> $crate::error::Result<rpc!(@ret $($ret)?)> {
-			let name = stringify!($fn_name);
-			$crate::trace!("Call proxy method {}", name);
-			// TODO: Enforce capacity
-			let mut buf = Vec::with_capacity($crate::packet::MSS);
-			buf.push($crate::packet::PKT_CALL);
-			$crate::service::append_uuid(&mut buf);
-			let name_bytes = name.as_bytes();
-			// Set call name
-			buf.push(name_bytes.len() as u8);
-			for b in name_bytes.iter() {
-			    buf.push(*b);
-			}
-			// serialize call args
-			$(
-			    $crate::bincode::serialize_into(&mut buf, & $arg).unwrap();
-			)*
-			let ret = $self_.call(dst, buf).await.await;
-			Ok($crate::bincode::deserialize(ret.as_slice()).unwrap())
+
+		    rpc! {
+			@proxy $(#[$fnattr])* $fn_name($self_ $(, $arg: $in)*) $(-> $ret)?
 		    }
 		)*
 	    }
 	}
     };
+
+    // Handle methods using/not using context
+    // Interface
+    (
+	@interface $fn_name:ident(& $self_:ident, $context:ident : RpcContext $(, $arg:ident : $in:ty)*)
+	    $(-> $ret:ty)?
+    ) => {
+	async fn $fn_name(& $self_, $context: $crate::service::RpcContext $(,$arg: $in)*) -> rpc!(@ret $($ret)?);
+    };
+
+    (
+	@interface $fn_name:ident(& $self_:ident $(, $arg:ident : $in:ty)*)
+	    $(-> $ret:ty)?
+    ) => {
+	rpc! {
+	    @interface $fn_name(& $self_, context: RpcContext $(, $arg : $in)*) $(-> $ret)?
+	}
+    };
+
+    // The implementation part (with the user supplied code block)
+    (
+	@implement $(#[$fnattr:meta])* $fn_name:ident(& $self_:ident, $context:ident : RpcContext $(, $arg:ident : $in:ty)*)
+	    $(-> $ret:ty)? $b:block
+    ) => {
+	$(#[$fnattr])*
+	async fn $fn_name(& $self_, $context: $crate::service::RpcContext $(,$arg: $in)*) -> rpc!(@ret $($ret)?) $b
+    };
+
+    (
+	@implement $(#[$fnattr:meta])* $fn_name:ident(& $self_:ident $(, $arg:ident : $in:ty)*)
+	    $(-> $ret:ty)? $b:block
+    ) => {
+	rpc!{
+	    @implement $fn_name(& $self_, context: RpcContext $(, $arg : $in)*) $(-> $ret)? $b
+	}
+    };
+
+    // The RPC proxy interface (swallow context)
+    (
+	@proxy_interface $fn_name:ident($self_:ident, $context:ident : RpcContext $(,$arg:ident : $in:ty)*) $(-> $ret:ty)?
+    ) => {
+	rpc!(@proxy_interface $fn_name($self_ $(,$arg : $in)*) $(-> $ret)?);
+    };
+
+    (
+	@proxy_interface $fn_name:ident($self_:ident $(,$arg:ident : $in:ty)*) $(-> $ret:ty)?
+    ) => {
+	async fn $fn_name(& $self_, dst: $crate::compat::net::SocketAddr $(, $arg: $in)*)
+			  -> $crate::Result<rpc!(@ret $($ret)?)>;
+    };
+
+    // The actual proxy (swallow context)
+    (
+	@proxy $(#[$fnattr:meta])* $fn_name:ident($self_:ident, $context:ident : RpcContext $(,$arg:ident : $in:ty)*) $(-> $ret:ty)?
+    ) => {
+	rpc!(@proxy $fn_name($self_ $(,$arg : $in)*) $(-> $ret)?);
+    };
+
+    (
+	@proxy $(#[$fnattr:meta])* $fn_name:ident($self_:ident $(,$arg:ident : $in:ty)*) $(-> $ret:ty)?
+    ) => {
+	$(#[$fnattr])*
+	async fn $fn_name(& $self_, dst: $crate::compat::net::SocketAddr $(, $arg: $in)*)
+			  -> $crate::Result<rpc!(@ret $($ret)?)> {
+	    let name = stringify!($fn_name);
+	    $crate::trace!("Call proxy method {}", name);
+	    // TODO: Enforce capacity
+	    let mut buf = Vec::with_capacity($crate::packet::MSS);
+	    buf.push($crate::packet::PKT_CALL);
+	    $crate::service::append_uuid(&mut buf);
+	    let name_bytes = name.as_bytes();
+	    // Set call name
+	    buf.push(name_bytes.len() as u8);
+	    for b in name_bytes.iter() {
+		buf.push(*b);
+	    }
+	    // serialize call args
+	    $(
+		$crate::bincode::serialize_into(&mut buf, & $arg).unwrap();
+	    )*
+	    let ret = $self_.call(dst, buf).await.await;
+	    Ok($crate::bincode::deserialize(ret.as_slice()).unwrap())
+	}
+    };
+
+    // The RPC handler
+    (
+	@handler $rpc_name:ident $fn_name:ident, $context:ident : RpcContext $(,$arg: ident: $in:ty)*
+    ) => {
+	rpc!(@handler $rpc_name $fn_name $(,$arg: $in)*)
+    };
+
+    (
+	@handler $rpc_name:ident $fn_name:ident $(,$arg: ident: $in:ty)*
+    ) => {
+	|this, context, input, mut output: Vec<u8>| {
+	    $crate::paste! {
+		$crate::trace!("RPC Handler {}", stringify!($fn_name));
+		let this = this.clone();
+		let ( $($arg,)*) : ($($in,)*) = $crate::bincode::deserialize(input)
+		    .or(Err($crate::RpcError::ArgumentDecode))?;
+		let func = || async move {
+		    $crate::trace!("Start RPC -> {}", stringify!($fn_name));
+		    // Make sure we use the trait method!
+		    let ret = [<$rpc_name Trait>]::$fn_name(&*this, context, $($arg,)*).await;
+		    $crate::trace!("End RPC   <- {}",  stringify!($fn_name));
+
+		    $crate::bincode::serialize_into(&mut output, &ret).unwrap();
+		    Ok(output)
+		};
+		Ok(Box::pin(func()))
+	    }
+	}
+    };
+
     // Fix up/"de-sugar" methods without return type to returning the actual ()
     (@ret $ret:ty) => { $ret };
     (@ret) => { () };
 }
-
