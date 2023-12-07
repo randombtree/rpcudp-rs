@@ -268,10 +268,9 @@ impl<T: RpcService + Sync + Send +'static> RpcServer<T>
 	let uuid: [u8; UUID_LEN] = std::array::from_fn(|i| packet[i + 1]);
 	let uuid = Arc::new(uuid);
 	let proxy = RpcProxy::new(self.inner.clone(), uuid.clone());
-	{
-	    let mut map = self.inner.pending.lock().unwrap();
-	    map.insert(uuid, proxy.0.clone());
-	}
+	self.inner.pending.lock()
+	    .map(|mut map| map.insert(uuid, proxy.0.clone()))
+	    .expect("Memory corruption");
 	// TODO: Fail Proxy early if send_to fails..
 	match self.inner.socket.send_to(packet.as_slice(), dst).await {
 	    Ok(_b) => (),
