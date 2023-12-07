@@ -131,10 +131,14 @@ mod tests {
 	block_on(async {
 	    let server_service = TestService::new();
 	    let client_service = TestService::new();
-	    let server_addr: SocketAddr = "127.0.0.1:30000".parse().unwrap();
-	    let client_addr: SocketAddr = "127.0.0.1:30001".parse().unwrap();
-	    let server = RpcServer::bind(server_addr, server_service.clone()).await.unwrap();
-	    let client  = RpcServer::bind(client_addr, client_service.clone()).await.unwrap();
+	    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+	    let [client, server] = [&client_service, &server_service]
+		.map(|service| async {
+		    let rpc = RpcServer::bind(addr, service.clone()).await.unwrap();
+		    let addr = rpc.local_addr();
+		    (rpc, addr)
+		});
+	    let ((client, client_addr), (server, server_addr)) = futures::future::join(client, server).await;
 
 	    // Test string -> string
 	    let hello_ret = timed_future!(client.hello(server_addr, "foo".into()));

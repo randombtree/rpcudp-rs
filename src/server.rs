@@ -198,6 +198,12 @@ impl<T: RpcService + Sync + Send +'static> RpcServer<T>
 	})
     }
 
+    /// Get the socket bound address
+    pub fn local_addr(&self) -> SocketAddr {
+	self.inner.socket.local_addr()
+	    .expect("Socket lost it's address?")
+    }
+
     fn handle_packet(inner: Arc<RpcServerInner<T>>, source: SocketAddr, packet: Vec<u8>) {
 
 	match packet[0] {
