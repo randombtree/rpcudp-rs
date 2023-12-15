@@ -137,7 +137,7 @@ impl<T: Sync> RpcServerInner<T> {
 
     fn remove_proxy(&self, key: &ProxyKey) {
 	let mut map = self.pending.lock().unwrap();
-	if let Some(_) = map.remove(key) {
+	if map.remove(key).is_some() {
 	    trace!("Removing stale proxy");
 	}
     }
