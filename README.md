@@ -1,3 +1,5 @@
+[![Build status](https://img.shields.io/github/actions/workflow/status/randombtree/rpcudp-rs/main.yml)](https://github.com/randombtree/rpcudp-rs/actions)
+
 # rpcudp-rs - Simple bare-bones P2P RPC over UDP
 
 Simple unreliable async RPC over UDP. RPC calls are not timed, so its up to the caller to time-out if the receiver doesn't answer.
