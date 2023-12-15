@@ -20,6 +20,9 @@ jobs:
       with:
         toolchain: nightly
         override: true
+        components: clippy
+    - name: Run clippy
+      run: cargo clippy --verbose
     - name: Build
       run: cargo build --verbose
     - name: Run tests
