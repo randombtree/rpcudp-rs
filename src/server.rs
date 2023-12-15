@@ -30,15 +30,15 @@ use crate::service::{RpcService, RpcContext};
 type ProxyKey = Arc<[u8; UUID_LEN]>;
 
 enum RpcProxyState {
-    INIT,
-    PENDING(Waker),
-    READY(Vec<u8>),
-    FINISHED,
+    Init,
+    Pending(Waker),
+    Ready(Vec<u8>),
+    Finished,
 }
 
 impl RpcProxyState {
     fn new() -> RpcProxyState {
-	RpcProxyState::INIT
+	RpcProxyState::Init
     }
 }
 
@@ -61,9 +61,9 @@ impl<T: Sync> RpcProxyInner<T> {
     /// Set the result for the Future waiting and wake up waiter.
     fn wakeup(&self, result: Vec<u8>) {
 	let mut state = self.state.lock().unwrap();
-	let mut new_state = RpcProxyState::READY(result);
+	let mut new_state = RpcProxyState::Ready(result);
 	swap(&mut *state, &mut new_state);
-	if let RpcProxyState::PENDING(waker) = new_state {
+	if let RpcProxyState::Pending(waker) = new_state {
 	    waker.wake();
 	}
     }
@@ -87,17 +87,17 @@ impl<T: Sync> Future for RpcProxy<T> {
 
 	// Ugh, this got a bit ugly, fix this if a match'n'swap pattern can be found
 	match *state {
-	    INIT | PENDING(_) => {
-		swap(&mut *state, &mut RpcProxyState::PENDING(cx.waker().clone()));
+	    Init | Pending(_) => {
+		swap(&mut *state, &mut RpcProxyState::Pending(cx.waker().clone()));
 		Poll::Pending
 	    },
-	    FINISHED => Poll::Pending,
-	    READY(_) => {
+	    Finished => Poll::Pending,
+	    Ready(_) => {
 
-		let mut oldstate = FINISHED;
+		let mut oldstate = Finished;
 		swap(&mut *state, &mut oldstate);
 
-		if let READY(out) = oldstate {
+		if let Ready(out) = oldstate {
 		    Poll::Ready(out)
 		} else {
 		    Poll::Pending
