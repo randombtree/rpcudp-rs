@@ -245,14 +245,13 @@ impl<T: RpcService + Sync + Send +'static> RpcServer<T>
 		//let mut map = inner.pending.lock().unwrap();
 		let mut map = inner.pending.lock().unwrap();
 		let ret = map.remove(&uuid)
-		    .and_then(|proxy| {
+		    .map(|proxy| {
 			// Ugh, not good at all.. need a buffer object :/
 			let mut result = Vec::with_capacity(packet.len() - UUID_LEN - 1);
 			for b in &packet[1 + UUID_LEN..] {
 			    result.push(*b);
 			}
 			proxy.wakeup(result);
-			Some(())
 		    });
 		if ret.is_some() {
 		    trace!("Reply data relayed to caller");
